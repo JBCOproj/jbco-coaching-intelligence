@@ -1,48 +1,45 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font: Arial, Helvetica, sans-serif;
+  --font-mono: 'Courier New', Courier, monospace;
 
-  --color-bg:             #f5f4f0;
-  --color-surface:        #ffffff;
-  --color-border:         #e2e0d8;
-  --color-border-subtle:  #ede9e1;
+  --bg:       #f0ede8;
+  --surface:  #ffffff;
+  --border:   #e0ddd6;
+  --border-subtle: #ece9e2;
 
-  --color-text-primary:   #1a1a1a;
-  --color-text-secondary: #6b6b6b;
-  --color-text-tertiary:  #9b9b9b;
+  --text:     #1a1a1a;
+  --text-2:   #6b6b6b;
+  --text-3:   #9b9b9b;
 
-  --color-accent:         #c0392b;
+  --navy:     #0f1e38;
+  --navy-2:   #162848;
 
   /* Amazon DSP tier colors — NEVER CHANGE */
-  --tier-poor:       #cc0c3a;
-  --tier-fair:       #d4770d;
-  --tier-great:      #358118;
-  --tier-fantastic:  #077398;
-  --tier-fantasticplus: #0c4962;
+  --poor:       #cc0c3a;
+  --fair:       #d4770d;
+  --great:      #358118;
+  --fantastic:  #077398;
+  --fplus:      #0c4962;
 
-  /* Driver tier colors */
-  --tier-bronze:   #a0522d;
-  --tier-silver:   #6b7fa3;
-  --tier-gold:     #b8860b;
-  --tier-platinum: #358118;
+  /* Driver tier colors — NEVER CHANGE */
+  --platinum: #358118;
+  --gold:     #b8860b;
+  --silver:   #6b7fa3;
+  --bronze:   #a0522d;
 }
 
-html, body { height: 100%; background: var(--color-bg); }
-
-body {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  color: var(--color-text-primary);
-  -webkit-font-smoothing: antialiased;
-  line-height: 1.5;
-}
-
-#root { min-height: 100vh; }
-
-button { font-family: var(--font-sans); }
+html, body, #root { height: 100%; }
+body { font-family: var(--font); font-size: 14px; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+button { font-family: var(--font); }
+input, select { font-family: var(--font); }
+a { color: var(--fantastic); text-decoration: none; }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; }
+input[type="range"]::-webkit-slider-track { height: 4px; background: #e0ddd6; border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--fantastic); border-radius: 50%; cursor: pointer; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--fantastic); margin-top: -5px; }
