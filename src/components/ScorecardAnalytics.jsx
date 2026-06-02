@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { getFleetTier, FLEET_TIERS, COL } from '../utils.js'
 
 // Amazon DSP scorecard metric weights — from actual CSV weight columns
+// These are the ACTUAL weights Amazon uses, read directly from the CSV
 const METRICS = [
   { key: 'cdfDpmo',   label: 'CDF DPMO',              col: COL.cdfDpmo,    tierCol: COL.cdfTier,          weight: 0.126, unit: '',    lowerBetter: true,  fantastic: 400,  great: 1000, fair: 1750  },
   { key: 'dsbDpmo',   label: 'DSB DPMO',              col: COL.dsb,        tierCol: COL.dsbTier,          weight: 0.126, unit: '',    lowerBetter: true,  fantastic: 0,    great: 100,  fair: 500   },
@@ -40,33 +41,39 @@ const QUICK_SCENARIOS = [
 ]
 
 export default function ScorecardAnalytics({ reportData, week, publishedScore: propPublished }) {
+  // Get actual baseline values from the overview data
   const baseline = useMemo(() => {
     const drivers = reportData?.overview || []
     if (!drivers.length) return { cdfDpmo: 1699, dsbDpmo: 239, dcr: 99.67, speeding: 7.9, seatbelt: 0.9, signal: 3.4, distract: 1.7, following: 5.0, pod: 98.74 }
 
-    function avg(col) {
-      const vals = drivers.map(d => parseFloat((d[col] || '').replace('%', ''))).filter(v => !isNaN(v) && v > 0)
+    function avg(col, isPercent) {
+      const vals = drivers.map(d => {
+        const v = d[col] || ''
+        return parseFloat(v.replace('%', ''))
+      }).filter(v => !isNaN(v) && v > 0)
       if (!vals.length) return 0
-      return vals.reduce((s, v) => s + v, 0) / vals.length
+      const a = vals.reduce((s, v) => s + v, 0) / vals.length
+      return isPercent ? a : a
     }
 
     return {
       cdfDpmo:   avg(COL.cdfDpmo),
       dsbDpmo:   avg(COL.dsb),
-      dcr:       avg(COL.dcr),
+      dcr:       avg(COL.dcr, true),
       speeding:  avg(COL.speeding),
       seatbelt:  avg(COL.seatbelt),
       signal:    avg(COL.signalViol),
       distract:  avg(COL.distractions),
       following: avg(COL.following),
-      pod:       avg(COL.pod),
+      pod:       avg(COL.pod, true),
     }
   }, [reportData])
 
   const [values, setValues] = useState(() => baseline)
-  const baseScore = propPublished || 72.6
+  const baseScore = propPublished || parseFloat(reportData?.overview?.[0]?.__publishedScore) || 72.6
   const baseTier = getFleetTier(baseScore)
 
+  // Projected score: adjust baseline score proportionally based on metric changes
   const projScore = useMemo(() => {
     let adj = 0
     METRICS.forEach(m => {
@@ -75,8 +82,8 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
       const bt = getMetricTier(m, bv)
       const ct = getMetricTier(m, cv)
       if (!bt || !ct) return
-      const ts = { Platinum: 100, Fantastic: 100, Gold: 75, Great: 50, Silver: 50, Fair: 25, Bronze: 0, Poor: 0 }
-      const diff = (ts[ct.label] || 0) - (ts[bt.label] || 0)
+      const tierScore = { Platinum: 100, Fantastic: 100, Gold: 75, Great: 50, Silver: 50, Fair: 25, Bronze: 0, Poor: 0 }
+      const diff = (tierScore[ct.label] || 0) - (tierScore[bt.label] || 0)
       adj += diff * m.weight
     })
     return Math.max(0, Math.min(100, baseScore + adj * 0.3))
@@ -89,6 +96,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
 
   return (
     <div>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--color-text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           SCORECARD ANALYTICS — {week || ''}
@@ -103,6 +111,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       </div>
 
+      {/* Score panels */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
         <ScorePanel
           title={`Published scorecard — ${week || ''}`}
@@ -121,8 +130,10 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         />
       </div>
 
+      {/* Tier bar */}
       <TierBar score={baseScore} projScore={projScore} />
 
+      {/* What-if sliders */}
       <div style={{ marginTop: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>WHAT-IF SLIDERS</div>
@@ -136,6 +147,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       </div>
 
+      {/* Quick scenarios */}
       <div style={{ marginTop: '24px' }}>
         <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
           QUICK SCENARIOS — CLICK TO APPLY
@@ -143,6 +155,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
           {QUICK_SCENARIOS.map(s => {
             const nv = s.apply(baseline)
+            // Compute projected score for this scenario
             let adj = 0
             METRICS.forEach(m => {
               const bv = baseline[m.key] || 0
@@ -179,6 +192,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       </div>
 
+      {/* Driver CDF Impact table */}
       {cdfDrivers.length > 0 && (
         <div style={{ marginTop: '28px' }}>
           <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
@@ -213,6 +227,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       )}
 
+      {/* Bottom 10% scenario */}
       <div style={{ marginTop: '24px' }}>
         <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
           BOTTOM 10% SCENARIO ANALYSIS
@@ -235,6 +250,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       </div>
 
+      {/* AI Path to Fantastic */}
       <div style={{ marginTop: '24px' }}>
         <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
           AI PATH TO FANTASTIC
@@ -245,6 +261,7 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </button>
       </div>
 
+      {/* Footer note */}
       <div style={{ marginTop: '24px', fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: '1.6', borderTop: '0.5px solid var(--color-border)', paddingTop: '14px' }}>
         Projected scores use your published baseline ({baseScore.toFixed(1)}) scaled proportionally by metric tier improvements using Amazon's published weights. "Lower is better" sliders move right-to-left. All metrics at Fantastic = Fantastic+ territory.
       </div>
