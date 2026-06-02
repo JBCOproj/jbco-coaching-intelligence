@@ -3,17 +3,16 @@ import UploadPanel from './components/UploadPanel.jsx'
 import FleetSummary from './components/FleetSummary.jsx'
 import DriverCard from './components/DriverCard.jsx'
 import ScorecardAnalytics from './components/ScorecardAnalytics.jsx'
-import { parseCSV, readFileAsText, tierOrder, formatWeek } from './utils.js'
+import { parseCSV, readFileAsText, tierOrder, formatWeek, COL } from './utils.js'
 
 const FILTERS = ['All drivers', 'Needs attention', 'Bronze', 'Silver', 'Gold', 'Platinum']
 const TABS = ['Coaching reports', 'Scorecard analytics']
 
 export default function App() {
-  const [files, setFiles] = useState({})
   const [loaded, setLoaded] = useState({ scorecard: false, overview: false, concessions: false, safety: false, cdf: false, feedback: false })
   const [statuses, setStatuses] = useState({})
   const [csvData, setCsvData] = useState({ overview: null, concessions: null, safety: null, cdf: null, feedback: [] })
-  const [pdfFile, setPdfFile] = useState(null)
+  const [pdfData, setPdfData] = useState(null) // parsed from PDF page 1
   const [report, setReport] = useState(null)
   const [filter, setFilter] = useState('All drivers')
   const [tab, setTab] = useState('Coaching reports')
@@ -23,9 +22,10 @@ export default function App() {
     if (!fileList || !fileList.length) return
 
     if (key === 'scorecard') {
-      setPdfFile(fileList[0])
+      // Store PDF file — will be sent to extract-pdf function on generate
       setLoaded(p => ({ ...p, scorecard: true }))
       setStatuses(p => ({ ...p, scorecard: fileList[0].name }))
+      setCsvData(p => ({ ...p, scorecardFile: fileList[0] }))
       return
     }
 
@@ -48,9 +48,9 @@ export default function App() {
     const fname = fileList[0].name
     setStatuses(p => ({ ...p, [key]: fname.length > 32 ? fname.slice(0, 29) + '...' : fname }))
 
+    // Extract week from overview CSV — it's already "2026-W21" format
     if (key === 'overview' && parsed.length > 0) {
-      const row = parsed[0]
-      const weekVal = row['Week'] || row['Week Number'] || row['WeekNumber'] || row['week'] || row['Week_Number'] || ''
+      const weekVal = parsed[0][COL.week] || ''
       if (weekVal) setWeek(formatWeek(weekVal))
     }
   }, [])
@@ -60,57 +60,61 @@ export default function App() {
   const buildReport = useCallback(() => {
     const { overview, concessions, safety, cdf, feedback } = csvData
 
-    const cdfMap = {}
-    ;(cdf || []).forEach(r => { cdfMap[r['Transporter ID']] = r })
-
+    // Build lookup maps using Transporter ID
     const conMap = {}
     ;(concessions || []).forEach(r => {
-      const id = r['Delivery Associate'] || r['Transporter ID']
-      if (!conMap[id]) conMap[id] = []
-      conMap[id].push(r)
+      const id = r['Transporter ID'] || r[COL.tid] || r['Delivery Associate'] || r[COL.name]
+      if (id) {
+        if (!conMap[id]) conMap[id] = []
+        conMap[id].push(r)
+      }
     })
 
     const safetyMap = {}
     ;(safety || []).forEach(r => {
-      const id = r['Transporter ID'] || r['Delivery Associate']
-      if (!safetyMap[id]) safetyMap[id] = []
-      safetyMap[id].push(r)
+      const id = r['Transporter ID'] || r[COL.tid]
+      if (id) {
+        if (!safetyMap[id]) safetyMap[id] = []
+        safetyMap[id].push(r)
+      }
     })
 
     const feedbackMap = {}
     ;(feedback || []).forEach(r => {
-      const id = r['Delivery Associate'] || r['Transporter ID']
-      if (!feedbackMap[id]) feedbackMap[id] = []
-      feedbackMap[id].push(r)
+      const id = r['Transporter ID'] || r[COL.tid] || r['Delivery Associate'] || r[COL.name]
+      if (id) {
+        if (!feedbackMap[id]) feedbackMap[id] = []
+        feedbackMap[id].push(r)
+      }
     })
 
     // Sort: worst standing first (Bronze → Silver → Gold → Platinum)
+    // then by score ascending within each tier
     const sorted = [...(overview || [])].sort((a, b) => {
-      const to = tierOrder(a['Overall Standing']) - tierOrder(b['Overall Standing'])
+      const to = tierOrder(a[COL.standing]) - tierOrder(b[COL.standing])
       if (to !== 0) return to
-      return (parseFloat(a['Overall Score']) || 0) - (parseFloat(b['Overall Score']) || 0)
+      return (parseFloat(a[COL.score]) || 0) - (parseFloat(b[COL.score]) || 0)
     })
 
-    // Build CDF driver impact list for analytics
-    const cdfDrivers = sorted
-      .map(d => ({
-        name: d['Delivery Associate'] || d['Name'] || '',
-        cdfDpmo: parseFloat(d['CDF DPMO'] || 0),
-        packages: parseFloat(d['Packages Delivered'] || d['Delivered'] || 0),
-      }))
-      .filter(d => d.cdfDpmo > 0)
-      .sort((a, b) => b.cdfDpmo - a.cdfDpmo)
+    // Top CDF offenders for analytics tab
+    const cdfDrivers = [...(overview || [])]
+      .filter(d => parseFloat(d[COL.cdfDpmo]) > 0)
+      .sort((a, b) => parseFloat(b[COL.cdfDpmo]) - parseFloat(a[COL.cdfDpmo]))
       .slice(0, 10)
+      .map(d => ({
+        name: d[COL.name]?.trim() || '',
+        cdfDpmo: parseFloat(d[COL.cdfDpmo]),
+        packages: parseFloat(d[COL.packages]) || 0,
+        tid: d[COL.tid],
+      }))
 
-    const publishedScore = parseFloat(overview?.[0]?.['Fleet Score'] || overview?.[0]?.['Overall Score'] || 72.6)
-
-    setReport({ drivers: sorted, cdfMap, conMap, safetyMap, feedbackMap, overview, cdfDrivers, publishedScore })
+    setReport({ drivers: sorted, conMap, safetyMap, feedbackMap, overview, cdfDrivers })
     setFilter('All drivers')
     setTab('Coaching reports')
   }, [csvData])
 
   const filteredDrivers = report ? report.drivers.filter(d => {
-    const s = d['Overall Standing']
+    const s = d[COL.standing]
     if (filter === 'All drivers') return true
     if (filter === 'Needs attention') return ['Bronze', 'Silver'].includes(s)
     return s === filter
@@ -122,10 +126,7 @@ export default function App() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.75rem' }}>
         <div>
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: '11px', letterSpacing: '0.12em',
-            color: 'var(--color-text-tertiary)', textTransform: 'uppercase', marginBottom: '4px',
-          }}>
+          <div style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', marginBottom: '4px' }}>
             JBCO LLC — DSM4
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: '500', color: 'var(--color-text-primary)', marginBottom: '3px' }}>
@@ -136,14 +137,8 @@ export default function App() {
           </p>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, paddingTop: '4px' }}>
-          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '3px' }}>
-            admin@jbcollc.com
-          </div>
-          <button style={{
-            fontSize: '12px', color: 'var(--color-text-tertiary)',
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            display: 'flex', alignItems: 'center', gap: '4px', marginLeft: 'auto',
-          }}>
+          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '3px' }}>admin@jbcollc.com</div>
+          <button style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '4px', marginLeft: 'auto' }}>
             <i className="ti ti-logout" /> Sign out
           </button>
         </div>
@@ -160,36 +155,25 @@ export default function App() {
         savedWeeks={week ? [week] : []}
       />
 
-      {/* Tabs — only show after report is generated */}
+      {/* Tabs + content — only after report generated */}
       {report && (
         <>
-          <div style={{
-            display: 'flex', gap: '0', borderBottom: '1px solid var(--color-border)',
-            marginBottom: '1.25rem',
-          }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', marginBottom: '1.25rem' }}>
             {TABS.map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  padding: '8px 16px', fontSize: '13px', fontWeight: '400',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: tab === t ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                  borderBottom: tab === t ? '2px solid var(--color-text-primary)' : '2px solid transparent',
-                  marginBottom: '-1px', transition: 'all 0.15s',
-                }}
-              >
-                {t}
-              </button>
+              <button key={t} onClick={() => setTab(t)} style={{
+                padding: '8px 16px', fontSize: '13px', fontWeight: '400',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: tab === t ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                borderBottom: tab === t ? '2px solid var(--color-text-primary)' : '2px solid transparent',
+                marginBottom: '-1px', transition: 'all 0.15s',
+              }}>{t}</button>
             ))}
           </div>
 
-          {/* Coaching reports tab */}
           {tab === 'Coaching reports' && (
             <>
               <FleetSummary drivers={report.overview} week={week} />
 
-              {/* Filter pills */}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 {FILTERS.map(f => (
                   <button key={f} onClick={() => setFilter(f)} style={{
@@ -198,25 +182,22 @@ export default function App() {
                     background: filter === f ? 'var(--color-text-primary)' : 'transparent',
                     color: filter === f ? '#fff' : 'var(--color-text-secondary)',
                     cursor: 'pointer', transition: 'all 0.1s',
-                  }}>
-                    {f}
-                  </button>
+                  }}>{f}</button>
                 ))}
               </div>
 
-              {/* Driver cards */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {filteredDrivers.map((driver, i) => {
-                  const tid = driver['Transporter ID']
+                  const tid = driver[COL.tid]
+                  const dname = driver[COL.name]?.trim()
                   return (
                     <DriverCard
                       key={tid || i}
                       index={i}
                       driver={driver}
-                      cdfRow={report.cdfMap[tid]}
-                      concessions={report.conMap[driver['Delivery Associate']] || report.conMap[tid] || []}
-                      safety={report.safetyMap[tid] || report.safetyMap[driver['Delivery Associate']] || []}
-                      feedback={report.feedbackMap[driver['Delivery Associate']] || report.feedbackMap[tid] || []}
+                      concessions={report.conMap[tid] || report.conMap[dname] || []}
+                      safety={report.safetyMap[tid] || report.safetyMap[dname] || []}
+                      feedback={report.feedbackMap[tid] || report.feedbackMap[dname] || []}
                     />
                   )
                 })}
@@ -230,12 +211,8 @@ export default function App() {
             </>
           )}
 
-          {/* Scorecard analytics tab */}
           {tab === 'Scorecard analytics' && (
-            <ScorecardAnalytics
-              reportData={{ ...report, publishedScore: report.publishedScore, cdfDrivers: report.cdfDrivers }}
-              week={week}
-            />
+            <ScorecardAnalytics reportData={report} week={week} />
           )}
         </>
       )}
