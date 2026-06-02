@@ -1,6 +1,8 @@
 export function parseCSV(text) {
   if (!text || !text.trim()) return []
-  const lines = text.trim().split('\n')
+  // Remove BOM if present
+  const cleaned = text.replace(/^\uFEFF/, '')
+  const lines = cleaned.trim().split('\n')
   if (lines.length < 2) return []
   const headers = parseCSVLine(lines[0])
   return lines.slice(1).map(line => {
@@ -52,7 +54,7 @@ export function getFleetTier(score) {
   return FLEET_TIERS.find(t => score >= t.min) || FLEET_TIERS[FLEET_TIERS.length - 1]
 }
 
-// Driver-level standing tiers
+// Driver-level standing tiers — NEVER CHANGE COLORS
 export const DRIVER_TIER_COLORS = {
   Platinum: '#358118',
   Gold:     '#b8860b',
@@ -64,33 +66,16 @@ export function getDriverTierColor(tier) {
   return DRIVER_TIER_COLORS[tier] || '#9b9b9b'
 }
 
+// Sort worst first for coaching priority
 export function tierOrder(tier) {
   const order = { Bronze: 0, Silver: 1, Gold: 2, Platinum: 3 }
   return order[tier] ?? 2
 }
 
+// Week is already formatted as "2026-W21" in the CSV — just return it
 export function formatWeek(val) {
   if (!val) return ''
-  const s = String(val).trim()
-
-  // Already formatted: "2026-W21"
-  if (/^\d{4}-W\d{1,2}$/.test(s)) return s
-
-  // Plain week number: "21"
-  if (/^\d{1,2}$/.test(s)) {
-    const year = new Date().getFullYear()
-    return `${year}-W${String(parseInt(s)).padStart(2, '0')}`
-  }
-
-  // ISO date string: "2026-05-20"
-  try {
-    const d = new Date(s)
-    if (isNaN(d.getTime())) return s
-    const year = d.getFullYear()
-    const start = new Date(year, 0, 1)
-    const week = Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7)
-    return `${year}-W${String(week).padStart(2, '0')}`
-  } catch { return s }
+  return String(val).trim()
 }
 
 export function getInitials(name) {
@@ -99,4 +84,44 @@ export function getInitials(name) {
   return parts.length >= 2
     ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
     : name.slice(0, 2).toUpperCase()
+}
+
+// Exact column names from DSP_Overview_Dashboard CSV
+export const COL = {
+  week:          'Week',
+  name:          'Delivery Associate ',   // note trailing space in CSV header
+  tid:           'Transporter ID',
+  standing:      'Overall Standing',
+  score:         'Overall Score',
+  packages:      'Packages Delivered',
+
+  speeding:      'Speeding Event Rate (per trip)',
+  speedingTier:  'Speeding Event Rate Tier',
+
+  seatbelt:      'Seatbelt-Off Rate (per trip)',
+  seatbeltTier:  'Seatbelt-Off Rate Tier',
+
+  distractions:  'Distractions Rate (per trip)',
+  distractionsTier: 'Distractions Rate Tier',
+
+  signalViol:    'Sign/ Signal Violations Rate (per trip)',
+  signalViolTier:'Sign/ Signal Violations Rate Tier',
+
+  following:     'Following Distance Rate (per trip)',
+  followingTier: 'Following Distance Rate Tier',
+
+  cdfDpmo:       'CDF DPMO',
+  cdfTier:       'CDF DPMO Tier',
+
+  ced:           'CED',
+  cedTier:       'CED Tier',
+
+  dcr:           'DCR',
+  dcrTier:       'DCR Tier',
+
+  dsb:           'DSB',
+  dsbTier:       'DSB DPMO Tier',
+
+  pod:           'POD',
+  podTier:       'POD Tier',
 }
