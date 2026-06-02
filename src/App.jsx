@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import UploadPanel from './components/UploadPanel.jsx'
 import FleetSummary from './components/FleetSummary.jsx'
 import DriverCard from './components/DriverCard.jsx'
@@ -12,20 +12,31 @@ export default function App() {
   const [loaded, setLoaded] = useState({ scorecard: false, overview: false, concessions: false, safety: false, cdf: false, feedback: false })
   const [statuses, setStatuses] = useState({})
   const [csvData, setCsvData] = useState({ overview: null, concessions: null, safety: null, cdf: null, feedback: [] })
-  const [pdfData, setPdfData] = useState(null) // parsed from PDF page 1
   const [report, setReport] = useState(null)
   const [filter, setFilter] = useState('All drivers')
   const [tab, setTab] = useState('Coaching reports')
   const [week, setWeek] = useState(null)
+  const [savedWeeks, setSavedWeeks] = useState([])
+  const [saving, setSaving] = useState(false)
+
+  // Load saved weeks on startup
+  useEffect(() => {
+    fetch('/.netlify/functions/get-reports')
+      .then(r => r.json())
+      .then(data => {
+        if (data.reports && data.reports.length > 0) {
+          setSavedWeeks(data.reports.map(r => r.week_of))
+        }
+      })
+      .catch(e => console.error('Failed to load saved weeks:', e))
+  }, [])
 
   const handleFile = useCallback(async (key, fileList) => {
     if (!fileList || !fileList.length) return
 
     if (key === 'scorecard') {
-      // Store PDF file — will be sent to extract-pdf function on generate
       setLoaded(p => ({ ...p, scorecard: true }))
       setStatuses(p => ({ ...p, scorecard: fileList[0].name }))
-      setCsvData(p => ({ ...p, scorecardFile: fileList[0] }))
       return
     }
 
@@ -48,7 +59,6 @@ export default function App() {
     const fname = fileList[0].name
     setStatuses(p => ({ ...p, [key]: fname.length > 32 ? fname.slice(0, 29) + '...' : fname }))
 
-    // Extract week from overview CSV — it's already "2026-W21" format
     if (key === 'overview' && parsed.length > 0) {
       const weekVal = parsed[0][COL.week] || ''
       if (weekVal) setWeek(formatWeek(weekVal))
@@ -57,46 +67,33 @@ export default function App() {
 
   const ready = loaded.scorecard && loaded.overview && loaded.concessions && loaded.safety && loaded.cdf
 
-  const buildReport = useCallback(() => {
+  const buildReport = useCallback(async () => {
     const { overview, concessions, safety, cdf, feedback } = csvData
 
-    // Build lookup maps using Transporter ID
     const conMap = {}
     ;(concessions || []).forEach(r => {
-      const id = r['Transporter ID'] || r[COL.tid] || r['Delivery Associate'] || r[COL.name]
-      if (id) {
-        if (!conMap[id]) conMap[id] = []
-        conMap[id].push(r)
-      }
+      const id = r['Transporter ID'] || r[COL.tid]
+      if (id) { if (!conMap[id]) conMap[id] = []; conMap[id].push(r) }
     })
 
     const safetyMap = {}
     ;(safety || []).forEach(r => {
       const id = r['Transporter ID'] || r[COL.tid]
-      if (id) {
-        if (!safetyMap[id]) safetyMap[id] = []
-        safetyMap[id].push(r)
-      }
+      if (id) { if (!safetyMap[id]) safetyMap[id] = []; safetyMap[id].push(r) }
     })
 
     const feedbackMap = {}
     ;(feedback || []).forEach(r => {
-      const id = r['Transporter ID'] || r[COL.tid] || r['Delivery Associate'] || r[COL.name]
-      if (id) {
-        if (!feedbackMap[id]) feedbackMap[id] = []
-        feedbackMap[id].push(r)
-      }
+      const id = r['Transporter ID'] || r[COL.tid]
+      if (id) { if (!feedbackMap[id]) feedbackMap[id] = []; feedbackMap[id].push(r) }
     })
 
-    // Sort: worst standing first (Bronze → Silver → Gold → Platinum)
-    // then by score ascending within each tier
     const sorted = [...(overview || [])].sort((a, b) => {
       const to = tierOrder(a[COL.standing]) - tierOrder(b[COL.standing])
       if (to !== 0) return to
       return (parseFloat(a[COL.score]) || 0) - (parseFloat(b[COL.score]) || 0)
     })
 
-    // Top CDF offenders for analytics tab
     const cdfDrivers = [...(overview || [])]
       .filter(d => parseFloat(d[COL.cdfDpmo]) > 0)
       .sort((a, b) => parseFloat(b[COL.cdfDpmo]) - parseFloat(a[COL.cdfDpmo]))
@@ -108,10 +105,60 @@ export default function App() {
         tid: d[COL.tid],
       }))
 
-    setReport({ drivers: sorted, conMap, safetyMap, feedbackMap, overview, cdfDrivers })
+    const newReport = { drivers: sorted, conMap, safetyMap, feedbackMap, overview, cdfDrivers }
+    setReport(newReport)
     setFilter('All drivers')
     setTab('Coaching reports')
-  }, [csvData])
+
+    // Save to database
+    if (week) {
+      setSaving(true)
+      try {
+        // Save a serializable version (no File objects)
+        const saveable = {
+          drivers: sorted,
+          overview,
+          cdfDrivers,
+          week,
+        }
+        const res = await fetch('/.netlify/functions/save-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weekOf: week, report: saveable }),
+        })
+        if (res.ok) {
+          setSavedWeeks(prev => prev.includes(week) ? prev : [week, ...prev])
+        }
+      } catch (e) {
+        console.error('Failed to save report:', e)
+      } finally {
+        setSaving(false)
+      }
+    }
+  }, [csvData, week])
+
+  async function loadSavedWeek(weekOf) {
+    try {
+      const res = await fetch('/.netlify/functions/get-reports')
+      const data = await res.json()
+      const found = data.reports?.find(r => r.week_of === weekOf)
+      if (!found) return
+      const saved = found.report
+      setReport({
+        drivers: saved.drivers || [],
+        overview: saved.overview || [],
+        cdfDrivers: saved.cdfDrivers || [],
+        conMap: {},
+        safetyMap: {},
+        feedbackMap: {},
+      })
+      setWeek(saved.week || weekOf)
+      setTab('Coaching reports')
+      setFilter('All drivers')
+    } catch (e) {
+      console.error('Failed to load saved week:', e)
+    }
+  }
 
   const filteredDrivers = report ? report.drivers.filter(d => {
     const s = d[COL.standing]
@@ -152,10 +199,12 @@ export default function App() {
         onAnalyze={buildReport}
         ready={ready}
         week={week}
-        savedWeeks={week ? [week] : []}
+        savedWeeks={savedWeeks}
+        onWeekChange={loadSavedWeek}
+        saving={saving}
       />
 
-      {/* Tabs + content — only after report generated */}
+      {/* Tabs + content */}
       {report && (
         <>
           <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', marginBottom: '1.25rem' }}>
@@ -173,7 +222,6 @@ export default function App() {
           {tab === 'Coaching reports' && (
             <>
               <FleetSummary drivers={report.overview} week={week} />
-
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
                 {FILTERS.map(f => (
                   <button key={f} onClick={() => setFilter(f)} style={{
@@ -185,24 +233,21 @@ export default function App() {
                   }}>{f}</button>
                 ))}
               </div>
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {filteredDrivers.map((driver, i) => {
                   const tid = driver[COL.tid]
-                  const dname = driver[COL.name]?.trim()
                   return (
                     <DriverCard
                       key={tid || i}
                       index={i}
                       driver={driver}
-                      concessions={report.conMap[tid] || report.conMap[dname] || []}
-                      safety={report.safetyMap[tid] || report.safetyMap[dname] || []}
-                      feedback={report.feedbackMap[tid] || report.feedbackMap[dname] || []}
+                      concessions={report.conMap[tid] || []}
+                      safety={report.safetyMap[tid] || []}
+                      feedback={report.feedbackMap[tid] || []}
                     />
                   )
                 })}
               </div>
-
               {filteredDrivers.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-tertiary)', fontSize: '14px' }}>
                   No drivers match this filter
