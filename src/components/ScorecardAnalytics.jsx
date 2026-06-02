@@ -329,4 +329,3 @@ function TierBadge({ label, color }) {
     </span>
   )
 }
-```
