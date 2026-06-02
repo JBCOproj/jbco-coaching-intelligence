@@ -3,6 +3,7 @@ import { getFleetTier, getDriverTierColor, COL } from '../utils.js'
 export default function FleetSummary({ drivers, week, publishedScore }) {
   if (!drivers || !drivers.length) return null
 
+  // Use published score if passed, otherwise average driver scores
   const scores = drivers.map(d => parseFloat(d[COL.score] || 0)).filter(s => s > 0)
   const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
   const displayScore = publishedScore > 0 ? publishedScore : avgScore
@@ -47,7 +48,6 @@ export default function FleetSummary({ drivers, week, publishedScore }) {
             })}
           </div>
         </div>
-
       </div>
     </div>
   )
