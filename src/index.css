@@ -1,0 +1,48 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+
+  --color-bg:             #f5f4f0;
+  --color-surface:        #ffffff;
+  --color-border:         #e2e0d8;
+  --color-border-subtle:  #ede9e1;
+
+  --color-text-primary:   #1a1a1a;
+  --color-text-secondary: #6b6b6b;
+  --color-text-tertiary:  #9b9b9b;
+
+  --color-accent:         #c0392b;
+
+  /* Amazon DSP tier colors — NEVER CHANGE */
+  --tier-poor:       #cc0c3a;
+  --tier-fair:       #d4770d;
+  --tier-great:      #358118;
+  --tier-fantastic:  #077398;
+  --tier-fantasticplus: #0c4962;
+
+  /* Driver tier colors */
+  --tier-bronze:   #a0522d;
+  --tier-silver:   #6b7fa3;
+  --tier-gold:     #b8860b;
+  --tier-platinum: #358118;
+}
+
+html, body { height: 100%; background: var(--color-bg); }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+#root { min-height: 100vh; }
+
+button { font-family: var(--font-sans); }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
