@@ -39,7 +39,7 @@ export function readFileAsText(file) {
   })
 }
 
-// Fleet-level scorecard tiers (Amazon DSP)
+// Fleet-level scorecard tiers (Amazon DSP) — NEVER CHANGE COLORS
 export const FLEET_TIERS = [
   { label: 'Fantastic+', min: 90, color: '#0c4962' },
   { label: 'Fantastic',  min: 75, color: '#077398' },
@@ -64,21 +64,33 @@ export function getDriverTierColor(tier) {
   return DRIVER_TIER_COLORS[tier] || '#9b9b9b'
 }
 
-// Sort order for driver tiers (worst first for coaching priority)
 export function tierOrder(tier) {
   const order = { Bronze: 0, Silver: 1, Gold: 2, Platinum: 3 }
   return order[tier] ?? 2
 }
 
-export function formatWeek(dateStr) {
-  if (!dateStr) return ''
+export function formatWeek(val) {
+  if (!val) return ''
+  const s = String(val).trim()
+
+  // Already formatted: "2026-W21"
+  if (/^\d{4}-W\d{1,2}$/.test(s)) return s
+
+  // Plain week number: "21"
+  if (/^\d{1,2}$/.test(s)) {
+    const year = new Date().getFullYear()
+    return `${year}-W${String(parseInt(s)).padStart(2, '0')}`
+  }
+
+  // ISO date string: "2026-05-20"
   try {
-    const d = new Date(dateStr)
+    const d = new Date(s)
+    if (isNaN(d.getTime())) return s
     const year = d.getFullYear()
     const start = new Date(year, 0, 1)
     const week = Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7)
     return `${year}-W${String(week).padStart(2, '0')}`
-  } catch { return dateStr }
+  } catch { return s }
 }
 
 export function getInitials(name) {
