@@ -51,7 +51,7 @@ const SLOTS = [
   },
 ]
 
-export default function UploadPanel({ loaded, statuses, onFile, onAnalyze, ready, week, savedWeeks, onWeekChange }) {
+export default function UploadPanel({ loaded, statuses, onFile, onAnalyze, ready, week, savedWeeks, onWeekChange, saving }) {
   return (
     <div style={{ marginBottom: '1.5rem' }}>
       {/* Upload cards grid */}
@@ -87,42 +87,35 @@ export default function UploadPanel({ loaded, statuses, onFile, onAnalyze, ready
           Upload 5 required files to continue
         </div>
       ) : (
-        <button
+        <div
           onClick={onAnalyze}
           style={{
-            width: '100%',
-            background: 'var(--color-text-primary)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '6px',
-            padding: '10px',
-            fontSize: '13px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            marginBottom: '1rem',
+            background: '#e8f5e8', color: '#358118',
+            textAlign: 'center', padding: '10px', borderRadius: '6px',
+            fontSize: '13px', fontWeight: '500', marginBottom: '1rem',
+            border: '0.5px solid #b8ddb8', cursor: 'pointer',
           }}
         >
-          Generate coaching report
-        </button>
+          ✓ All files loaded — click to generate coaching report
+        </div>
       )}
 
       {/* Saved weeks row */}
-      {savedWeeks && savedWeeks.length > 0 && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '8px 12px',
-          background: 'var(--color-surface)',
-          border: '0.5px solid var(--color-border)',
-          borderRadius: '6px',
-          fontSize: '12px',
-          color: 'var(--color-text-secondary)',
-        }}>
-          <i className="ti ti-clock" style={{ fontSize: '13px' }} />
-          <span>Saved weeks:</span>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        padding: '8px 12px',
+        background: 'var(--color-surface)',
+        border: '0.5px solid var(--color-border)',
+        borderRadius: '6px',
+        fontSize: '12px',
+        color: 'var(--color-text-secondary)',
+      }}>
+        <i className="ti ti-clock" style={{ fontSize: '13px' }} />
+        <span>Saved weeks:</span>
+        {savedWeeks && savedWeeks.length > 0 ? (
           <select
-            value={week || ''}
             onChange={e => onWeekChange && onWeekChange(e.target.value)}
             style={{
               border: '0.5px solid var(--color-border)',
@@ -134,12 +127,16 @@ export default function UploadPanel({ loaded, statuses, onFile, onAnalyze, ready
               cursor: 'pointer',
             }}
           >
+            <option value="">— select a week —</option>
             {savedWeeks.map(w => (
               <option key={w} value={w}>{w}</option>
             ))}
           </select>
-        </div>
-      )}
+        ) : (
+          <span style={{ color: 'var(--color-text-tertiary)' }}>No saved weeks yet</span>
+        )}
+        {saving && <span style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>Saving...</span>}
+      </div>
     </div>
   )
 }
