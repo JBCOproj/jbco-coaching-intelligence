@@ -89,7 +89,7 @@ export function getInitials(name) {
 // Exact column names from DSP_Overview_Dashboard CSV
 export const COL = {
   week:          'Week',
-  name:          'Delivery Associate ',   // note trailing space in CSV header
+  name:          'Delivery Associate ',
   tid:           'Transporter ID',
   standing:      'Overall Standing',
   score:         'Overall Score',
