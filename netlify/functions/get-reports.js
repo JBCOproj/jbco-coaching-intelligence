@@ -1,13 +1,10 @@
 const { neon } = require('@neondatabase/serverless')
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' }
-
   const connectionString = process.env.NETLIFY_DATABASE_URL
   if (!connectionString) return { statusCode: 500, body: JSON.stringify({ error: 'Database not configured' }) }
 
   try {
-    const { weekOf, report } = JSON.parse(event.body)
     const sql = neon(connectionString)
 
     await sql`
@@ -20,21 +17,20 @@ exports.handler = async (event) => {
       )
     `
 
-    await sql`
-      INSERT INTO weekly_reports (week_of, report, updated_at)
-      VALUES (${weekOf}, ${JSON.stringify(report)}, NOW())
-      ON CONFLICT (week_of) DO UPDATE
-        SET report = EXCLUDED.report,
-            updated_at = NOW()
+    const rows = await sql`
+      SELECT week_of, report, updated_at
+      FROM weekly_reports
+      ORDER BY week_of DESC
+      LIMIT 52
     `
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: true, weekOf }),
+      body: JSON.stringify({ reports: rows }),
     }
   } catch (err) {
-    console.error('Save report error:', err)
+    console.error('Get reports error:', err)
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
   }
 }
