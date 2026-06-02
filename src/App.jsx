@@ -49,7 +49,9 @@ export default function App() {
     setStatuses(p => ({ ...p, [key]: fname.length > 32 ? fname.slice(0, 29) + '...' : fname }))
 
     if (key === 'overview' && parsed.length > 0) {
-      setWeek(parsed[0]['Week'] ? formatWeek(parsed[0]['Week']) : null)
+      const row = parsed[0]
+      const weekVal = row['Week'] || row['Week Number'] || row['WeekNumber'] || row['week'] || row['Week_Number'] || ''
+      if (weekVal) setWeek(formatWeek(weekVal))
     }
   }, [])
 
@@ -185,7 +187,7 @@ export default function App() {
           {/* Coaching reports tab */}
           {tab === 'Coaching reports' && (
             <>
-              <FleetSummary drivers={report.overview} />
+              <FleetSummary drivers={report.overview} week={week} />
 
               {/* Filter pills */}
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
