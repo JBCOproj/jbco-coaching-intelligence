@@ -1,190 +1,279 @@
 import { useState, useMemo } from 'react'
-import { getFleetTier, FLEET_TIERS, COL } from '../utils.js'
+import { COL } from '../utils.js'
 
-// Amazon DSP scorecard metric weights — from actual CSV weight columns
-// These are the ACTUAL weights Amazon uses, read directly from the CSV
+// ── TIER COLORS — NEVER CHANGE ────────────────────────────────
+const TIER_COLORS = {
+  'Poor':       '#cc0c3a',
+  'Fair':       '#d4770d',
+  'Great':      '#358118',
+  'Fantastic':  '#077398',
+  'Fantastic+': '#0c4962',
+}
+
+// ── SCORECARD METRICS ─────────────────────────────────────────
+// Weights from Appendix A (before PSB redistribution)
+// lowerBetter: true = left side of slider is worst (highest number), right = best (lowest number)
+// lowerBetter: false = left side is worst (lowest number), right = best (highest number)
+//
+// Tier thresholds confirmed from W21 Overview CSV driver data
 const METRICS = [
-  { key: 'cdfDpmo',   label: 'CDF DPMO',              col: COL.cdfDpmo,    tierCol: COL.cdfTier,          weight: 0.126, unit: '',    lowerBetter: true,  fantastic: 400,  great: 1000, fair: 1750  },
-  { key: 'dsbDpmo',   label: 'DSB DPMO',              col: COL.dsb,        tierCol: COL.dsbTier,          weight: 0.126, unit: '',    lowerBetter: true,  fantastic: 0,    great: 100,  fair: 500   },
-  { key: 'dcr',       label: 'DCR',                   col: COL.dcr,        tierCol: COL.dcrTier,          weight: 0.126, unit: '%',   lowerBetter: false, fantastic: 99.8, great: 99.5, fair: 99    },
-  { key: 'speeding',  label: 'Speeding event rate',   col: COL.speeding,   tierCol: COL.speedingTier,     weight: 0.132, unit: '/100',lowerBetter: true,  fantastic: 2,    great: 5,    fair: 10    },
-  { key: 'seatbelt',  label: 'Seatbelt-off rate',    col: COL.seatbelt,   tierCol: COL.seatbeltTier,     weight: 0.132, unit: '/100',lowerBetter: true,  fantastic: 0,    great: 0.5,  fair: 1     },
-  { key: 'signal',    label: 'Sign/signal violations',col: COL.signalViol, tierCol: COL.signalViolTier,   weight: 0.132, unit: '/100',lowerBetter: true,  fantastic: 1,    great: 3,    fair: 5     },
-  { key: 'distract',  label: 'Distractions rate',    col: COL.distractions,tierCol: COL.distractionsTier,weight: 0.079, unit: '/100',lowerBetter: true,  fantastic: 0.5,  great: 1.5,  fair: 3     },
-  { key: 'following', label: 'Following distance',   col: COL.following,  tierCol: COL.followingTier,    weight: 0.053, unit: '/100',lowerBetter: true,  fantastic: 1,    great: 3,    fair: 6     },
-  { key: 'pod',       label: 'POD acceptance rate',  col: COL.pod,        tierCol: COL.podTier,          weight: 0.031, unit: '%',   lowerBetter: false, fantastic: 99,   great: 98,   fair: 95    },
+  // SAFETY
+  {
+    key: 'speeding', label: 'Speeding event rate',
+    col: COL.speeding, scoreCol: 'Speeding Event Rate Score', tierCol: COL.speedingTier,
+    weight: 11.7, category: 'safety', unit: '/100 trips', lowerBetter: true,
+    // Slider: left=worst(high number), right=best(0)
+    sliderMin: 0, sliderMax: 25,
+    // Tier thresholds (confirmed from PDF + driver data)
+    tF: 8.0, tG: 13.0, tFair: 20.0,
+    // Worst/best for slider display
+    worst: 25, best: 0,
+  },
+  {
+    key: 'seatbelt', label: 'Seatbelt-off rate',
+    col: COL.seatbelt, scoreCol: 'Seatbelt-Off Rate Score', tierCol: COL.seatbeltTier,
+    weight: 11.7, category: 'safety', unit: '/100 trips', lowerBetter: true,
+    sliderMin: 0, sliderMax: 10,
+    tF: 3.0, tG: 5.0, tFair: 8.0,
+    worst: 10, best: 0,
+  },
+  {
+    key: 'signal', label: 'Sign/signal violations',
+    col: COL.signalViol, scoreCol: 'Sign/ Signal Violations Rate Score', tierCol: COL.signalViolTier,
+    weight: 11.7, category: 'safety', unit: '/100 trips', lowerBetter: true,
+    sliderMin: 0, sliderMax: 20,
+    tF: 6.0, tG: 9.0, tFair: 15.0,
+    worst: 20, best: 0,
+  },
+  {
+    key: 'distractions', label: 'Distractions rate',
+    col: COL.distractions, scoreCol: 'Distractions Rate Score', tierCol: COL.distractionsTier,
+    weight: 7.5, category: 'safety', unit: '/100 trips', lowerBetter: true,
+    sliderMin: 0, sliderMax: 10,
+    tF: 2.5, tG: 4.0, tFair: 7.0,
+    worst: 10, best: 0,
+  },
+  {
+    key: 'following', label: 'Following distance rate',
+    col: COL.following, scoreCol: 'Following Distance Rate Score', tierCol: COL.followingTier,
+    weight: 5.0, category: 'safety', unit: '/100 trips', lowerBetter: true,
+    sliderMin: 0, sliderMax: 15,
+    tF: 3.9, tG: 6.0, tFair: 10.0,
+    worst: 15, best: 0,
+  },
+  // QUALITY
+  {
+    key: 'dcr', label: 'Delivery completion rate (DCR)',
+    col: COL.dcr, scoreCol: 'DCR Score', tierCol: COL.dcrTier,
+    weight: 12.7, category: 'quality', unit: '%', lowerBetter: false,
+    sliderMin: 97, sliderMax: 100,
+    tF: 99.5, tG: 99.0, tFair: 98.0,
+    worst: 97, best: 100,
+  },
+  {
+    key: 'dsb', label: 'Delivery success behaviors (DSB)',
+    col: COL.dsb, scoreCol: 'DSB DPMO Score', tierCol: COL.dsbTier,
+    weight: 12.7, category: 'quality', unit: 'DPMO', lowerBetter: true,
+    sliderMin: 0, sliderMax: 1500,
+    tF: 200, tG: 350, tFair: 600,
+    worst: 1500, best: 0,
+  },
+  {
+    key: 'ced', label: 'Customer escalation defect (CED)',
+    col: COL.ced, scoreCol: 'CED Score', tierCol: COL.cedTier,
+    weight: 12.7, category: 'quality', unit: 'DPMO', lowerBetter: true,
+    sliderMin: 0, sliderMax: 500,
+    tF: 0, tG: 50, tFair: 200,
+    worst: 500, best: 0,
+  },
+  {
+    key: 'cdf', label: 'Customer delivery feedback (CDF)',
+    col: COL.cdfDpmo, scoreCol: 'CDF DPMO Score', tierCol: COL.cdfTier,
+    weight: 6.3, category: 'quality', unit: 'DPMO', lowerBetter: true,
+    sliderMin: 0, sliderMax: 4000,
+    tF: 1076, tG: 1669, tFair: 2832,
+    worst: 4000, best: 0,
+  },
+  {
+    key: 'pod', label: 'Photo on delivery (POD)',
+    col: COL.pod, scoreCol: 'POD Score', tierCol: COL.podTier,
+    weight: 3.1, category: 'quality', unit: '%', lowerBetter: false,
+    sliderMin: 94, sliderMax: 100,
+    tF: 98.0, tG: 96.0, tFair: 94.0,
+    worst: 94, best: 100,
+  },
 ]
 
-function getMetricTier(metric, value) {
-  const v = typeof value === 'string' ? parseFloat(value.replace('%','')) : value
+// ── TIER HELPER ───────────────────────────────────────────────
+function getTier(metric, value) {
+  const v = parseFloat(String(value).replace('%', ''))
   if (isNaN(v)) return null
   if (metric.lowerBetter) {
-    if (v <= metric.fantastic) return { label: 'Fantastic', color: '#077398' }
-    if (v <= metric.great)     return { label: 'Great',     color: '#358118' }
-    if (v <= metric.fair)      return { label: 'Fair',      color: '#d4770d' }
-    return { label: 'Poor', color: '#cc0c3a' }
+    if (v <= metric.tF)    return 'Fantastic'
+    if (v <= metric.tG)    return 'Great'
+    if (v <= metric.tFair) return 'Fair'
+    return 'Poor'
   } else {
-    const pct = v > 1 ? v : v * 100
-    if (pct >= metric.fantastic) return { label: 'Fantastic', color: '#077398' }
-    if (pct >= metric.great)     return { label: 'Great',     color: '#358118' }
-    if (pct >= metric.fair)      return { label: 'Fair',      color: '#d4770d' }
-    return { label: 'Poor', color: '#cc0c3a' }
+    if (v >= metric.tF)    return 'Fantastic'
+    if (v >= metric.tG)    return 'Great'
+    if (v >= metric.tFair) return 'Fair'
+    return 'Poor'
   }
 }
 
-const QUICK_SCENARIOS = [
-  { label: 'Fix CDF to Great',       desc: 'CDF DPMO → 1,000',                     apply: v => ({ ...v, cdfDpmo: 1000 }) },
-  { label: 'Fix CDF to Fantastic',   desc: 'CDF DPMO → 400',                       apply: v => ({ ...v, cdfDpmo: 400  }) },
-  { label: 'Fix following distance', desc: 'FDR → 2.0 events/100 trips',            apply: v => ({ ...v, following: 2 }) },
-  { label: 'Fix all 3 focus areas',  desc: 'CDF Fantastic + DSB Fantastic + FDR Fantastic', apply: v => ({ ...v, cdfDpmo: 400, dsbDpmo: 0, following: 1 }) },
-  { label: 'All metrics Fantastic',  desc: 'Every metric at best possible level',   apply: v => ({ ...v, cdfDpmo: 400, dsbDpmo: 0, dcr: 99.9, speeding: 2, seatbelt: 0, signal: 1, distract: 0.5, following: 1, pod: 99.5 }) },
+// Continuous 0-100 score within tier bands (confirmed from CSV)
+function getMetricScore(metric, value) {
+  const v = parseFloat(String(value).replace('%', ''))
+  if (isNaN(v)) return 0
+  const { tF, tG, tFair, lowerBetter } = metric
+  if (lowerBetter) {
+    if (v <= tF)    return 100
+    if (v <= tG)    return 75 + (tG - v) / (tG - tF) * 25
+    if (v <= tFair) return 50 + (tFair - v) / (tFair - tG) * 25
+    return Math.max(0, 50 * tFair / v)
+  } else {
+    if (v >= tF)    return 100
+    if (v >= tG)    return 75 + (v - tG) / (tF - tG) * 25
+    if (v >= tFair) return 50 + (v - tFair) / (tG - tFair) * 25
+    return Math.max(0, (v / tFair) * 50)
+  }
+}
+
+// Category scores
+function getCategoryScores(values) {
+  const cats = { safety: { total: 0, w: 0 }, quality: { total: 0, w: 0 } }
+  METRICS.forEach(m => {
+    const v = values[m.key]
+    if (v == null) return
+    const score = getMetricScore(m, v)
+    cats[m.category].total += score * m.weight
+    cats[m.category].w += m.weight
+  })
+  return {
+    safety:  cats.safety.w  > 0 ? cats.safety.total  / cats.safety.w  : 0,
+    quality: cats.quality.w > 0 ? cats.quality.total / cats.quality.w : 0,
+    team:    100, // Fleet Execution = Fantastic, Tenured = Fantastic
+  }
+}
+
+// ── QUICK SCENARIOS ───────────────────────────────────────────
+const SCENARIOS = [
+  { label: 'Fix CDF to Great',      desc: 'CDF DPMO → 1,000',                  apply: v => ({ ...v, cdf: 1000 }) },
+  { label: 'Fix CDF to Fantastic',  desc: 'CDF DPMO → 400',                    apply: v => ({ ...v, cdf: 400 }) },
+  { label: 'Fix Following distance', desc: 'FDR → 2.0 events/100 trips',        apply: v => ({ ...v, following: 2.0 }) },
+  { label: 'Fix all 3 focus areas', desc: 'CDF + DSB + Following to Fantastic', apply: v => ({ ...v, cdf: 400, dsb: 0, following: 1.0 }) },
+  { label: 'All metrics Fantastic', desc: 'Every metric at best possible level', apply: v => ({ ...v, cdf: 400, dsb: 0, ced: 0, dcr: 100, speeding: 0, seatbelt: 0, signal: 0, distractions: 0, following: 0, pod: 100 }) },
 ]
 
-export default function ScorecardAnalytics({ reportData, week, publishedScore: propPublished }) {
-  // Get actual baseline values from the overview data
+// ── MAIN COMPONENT ────────────────────────────────────────────
+export default function ScorecardAnalytics({ reportData, week, publishedScore }) {
+  // Build baseline from actual company metric values in Overview CSV
   const baseline = useMemo(() => {
     const drivers = reportData?.overview || []
-    if (!drivers.length) return { cdfDpmo: 1699, dsbDpmo: 239, dcr: 99.67, speeding: 7.9, seatbelt: 0.9, signal: 3.4, distract: 1.7, following: 5.0, pod: 98.74 }
-
-    function avg(col, isPercent) {
-      const vals = drivers.map(d => {
-        const v = d[col] || ''
-        return parseFloat(v.replace('%', ''))
-      }).filter(v => !isNaN(v) && v > 0)
-      if (!vals.length) return 0
-      const a = vals.reduce((s, v) => s + v, 0) / vals.length
-      return isPercent ? a : a
+    if (!drivers.length) {
+      // Fallback to W21 actuals
+      return { speeding: 7.9, seatbelt: 0.9, signal: 3.4, distractions: 1.7, following: 5.0, dcr: 99.67, dsb: 239, ced: 0, cdf: 1699, pod: 98.74 }
     }
-
+    // Use actual driver averages weighted by packages as proxy for company metrics
+    function wavg(col) {
+      let total = 0, w = 0
+      drivers.forEach(d => {
+        const v = parseFloat(String(d[col] || '').replace('%', ''))
+        const pkgs = parseFloat(d[COL.packages]) || 1
+        if (!isNaN(v) && v >= 0) { total += v * pkgs; w += pkgs }
+      })
+      return w > 0 ? total / w : 0
+    }
     return {
-      cdfDpmo:   avg(COL.cdfDpmo),
-      dsbDpmo:   avg(COL.dsb),
-      dcr:       avg(COL.dcr, true),
-      speeding:  avg(COL.speeding),
-      seatbelt:  avg(COL.seatbelt),
-      signal:    avg(COL.signalViol),
-      distract:  avg(COL.distractions),
-      following: avg(COL.following),
-      pod:       avg(COL.pod, true),
+      speeding:    wavg(COL.speeding),
+      seatbelt:    wavg(COL.seatbelt),
+      signal:      wavg(COL.signalViol),
+      distractions:wavg(COL.distractions),
+      following:   wavg(COL.following),
+      dcr:         wavg(COL.dcr),
+      dsb:         wavg(COL.dsb),
+      ced:         wavg(COL.ced),
+      cdf:         wavg(COL.cdfDpmo),
+      pod:         wavg(COL.pod),
     }
   }, [reportData])
 
-  const [values, setValues] = useState(() => baseline)
-  const baseScore = propPublished || parseFloat(reportData?.overview?.[0]?.__publishedScore) || 72.6
-  const baseTier = getFleetTier(baseScore)
-
-  // Projected score: adjust baseline score proportionally based on metric changes
-  const projScore = useMemo(() => {
-    let adj = 0
-    METRICS.forEach(m => {
-      const bv = baseline[m.key] || 0
-      const cv = values[m.key] || 0
-      const bt = getMetricTier(m, bv)
-      const ct = getMetricTier(m, cv)
-      if (!bt || !ct) return
-      const tierScore = { Platinum: 100, Fantastic: 100, Gold: 75, Great: 50, Silver: 50, Fair: 25, Bronze: 0, Poor: 0 }
-      const diff = (tierScore[ct.label] || 0) - (tierScore[bt.label] || 0)
-      adj += diff * m.weight
-    })
-    return Math.max(0, Math.min(100, baseScore + adj * 0.3))
-  }, [values, baseline, baseScore])
-
-  const projTier = getFleetTier(projScore)
-  const cdfDrivers = reportData?.cdfDrivers || []
+  const [values, setValues] = useState(baseline)
+  const baseCategories = useMemo(() => getCategoryScores(baseline), [baseline])
+  const projCategories = useMemo(() => getCategoryScores(values), [values])
 
   function reset() { setValues(baseline) }
 
+  const score = publishedScore || 72.6
+
   return (
-    <div>
+    <div style={{ maxWidth: 900 }}>
+
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--color-text-tertiary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          SCORECARD ANALYTICS — {week || ''}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <h2 style={{ fontSize: 15, fontWeight: 500, marginBottom: 3 }}>Scorecard Analytics</h2>
+          <p style={{ fontSize: 12, color: 'var(--text-2)' }}>{week || ''} · Adjust sliders to see what-if impact on category scores</p>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select style={{ fontSize: '12px', border: '0.5px solid var(--color-border)', borderRadius: '4px', padding: '3px 8px', background: 'var(--color-surface)' }}>
-            <option>{week || ''}</option>
-          </select>
-          <button onClick={reset} style={{ fontSize: '12px', border: '0.5px solid var(--color-border)', borderRadius: '4px', padding: '3px 10px', background: 'var(--color-surface)', cursor: 'pointer', color: 'var(--color-text-secondary)' }}>
-            Reset sliders
-          </button>
-        </div>
+        <button onClick={reset} style={{ fontSize: 12, border: '0.5px solid var(--border)', borderRadius: 6, padding: '6px 14px', background: 'var(--surface)', cursor: 'pointer', color: 'var(--text-2)' }}>
+          ↺ Reset sliders
+        </button>
       </div>
 
-      {/* Score panels */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-        <ScorePanel
-          title={`Published scorecard — ${week || ''}`}
-          score={baseScore}
-          tier={baseTier}
-          subtitle={`Amazon DSP published score · gap to Fantastic: ${Math.max(0, 75 - baseScore).toFixed(1)} pts`}
-        />
-        <ScorePanel
-          title="Projected score — with slider adjustments"
-          score={projScore}
-          tier={projTier}
-          subtitle={projScore >= 75
-            ? <span style={{ color: '#358118' }}>▲ Above Fantastic threshold</span>
-            : <span style={{ color: '#cc0c3a' }}>Still {(75 - projScore).toFixed(1)} pts from Fantastic</span>
-          }
-        />
+      {/* Published score + category scores */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
+        <div style={{ background: '#0f1e38', borderRadius: 8, padding: '14px 16px' }}>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.12em', marginBottom: 4 }}>PUBLISHED SCORE</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{score}</div>
+          <TierBadge tier={scoreTier(score)} />
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 6 }}>Amazon published · {week}</div>
+        </div>
+
+        <CategoryCard label="Safety & Compliance" base={baseCategories.safety}  proj={projCategories.safety} />
+        <CategoryCard label="Quality"              base={baseCategories.quality} proj={projCategories.quality} />
+        <CategoryCard label="Team"                 base={baseCategories.team}    proj={projCategories.team} />
       </div>
 
-      {/* Tier bar */}
-      <TierBar score={baseScore} projScore={projScore} />
+      {/* Sliders — Safety */}
+      <SliderGroup
+        title="Safety & Compliance"
+        metrics={METRICS.filter(m => m.category === 'safety')}
+        values={values}
+        baseline={baseline}
+        onChange={(key, val) => setValues(p => ({ ...p, [key]: val }))}
+        reportData={reportData}
+      />
 
-      {/* What-if sliders */}
-      <div style={{ marginTop: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>WHAT-IF SLIDERS</div>
-          <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>← slide left to improve "lower is better" metrics · slide right for "higher is better"</div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {METRICS.map(m => (
-            <MetricSlider key={m.key} metric={m} value={values[m.key] || 0} baseline={baseline[m.key] || 0}
-              onChange={v => setValues(p => ({ ...p, [m.key]: v }))} />
-          ))}
-        </div>
-      </div>
+      {/* Sliders — Quality */}
+      <SliderGroup
+        title="Quality"
+        metrics={METRICS.filter(m => m.category === 'quality')}
+        values={values}
+        baseline={baseline}
+        onChange={(key, val) => setValues(p => ({ ...p, [key]: val }))}
+        reportData={reportData}
+      />
 
       {/* Quick scenarios */}
-      <div style={{ marginTop: '24px' }}>
-        <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
-          QUICK SCENARIOS — CLICK TO APPLY
+      <div style={{ marginTop: 28 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 10 }}>
+          Quick scenarios — click to apply
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          {QUICK_SCENARIOS.map(s => {
-            const nv = s.apply(baseline)
-            // Compute projected score for this scenario
-            let adj = 0
-            METRICS.forEach(m => {
-              const bv = baseline[m.key] || 0
-              const cv = nv[m.key] !== undefined ? nv[m.key] : bv
-              const bt = getMetricTier(m, bv)
-              const ct = getMetricTier(m, cv)
-              if (!bt || !ct) return
-              const ts = { Platinum: 100, Fantastic: 100, Gold: 75, Great: 50, Silver: 50, Fair: 25, Bronze: 0, Poor: 0 }
-              adj += ((ts[ct.label] || 0) - (ts[bt.label] || 0)) * m.weight
-            })
-            const ns = Math.max(0, Math.min(100, baseScore + adj * 0.3))
-            const nt = getFleetTier(ns)
-            const diff = ns - baseScore
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {SCENARIOS.map(s => {
+            const newVals = s.apply(baseline)
+            const newCats = getCategoryScores(newVals)
             return (
-              <div key={s.label} onClick={() => setValues(nv)}
-                style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: '6px', padding: '12px 14px', cursor: 'pointer' }}
+              <div key={s.label} onClick={() => setValues(newVals)}
+                style={{ background: 'var(--surface)', border: '0.5px solid var(--border)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = '#aaa'}
-                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
               >
-                <div style={{ fontSize: '13px', fontWeight: '500', marginBottom: '2px' }}>{s.label}</div>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginBottom: '8px' }}>{s.desc}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                    <span style={{ fontSize: '18px', fontWeight: '600' }}>{ns.toFixed(1)}</span>
-                    <TierBadge label={nt.label} color={nt.color} />
-                  </div>
-                  <span style={{ fontSize: '12px', color: diff >= 0 ? '#358118' : '#cc0c3a', fontWeight: '500' }}>
-                    {diff >= 0 ? '+' : ''}{diff.toFixed(1)} pts
-                  </span>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{s.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10 }}>{s.desc}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <ScorePill label="Safety"  score={newCats.safety} />
+                  <ScorePill label="Quality" score={newCats.quality} />
                 </div>
               </div>
             )
@@ -192,157 +281,227 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore: p
         </div>
       </div>
 
-      {/* Driver CDF Impact table */}
-      {cdfDrivers.length > 0 && (
-        <div style={{ marginTop: '28px' }}>
-          <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
-            DRIVER CDF IMPACT — FIXING EACH DRIVER'S EFFECT ON SCORECARD
-          </div>
-          <div style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '0.5px solid var(--color-border)' }}>
-                  {['Driver', 'CDF DPMO', 'Packages', '', 'Projected scorecard if fixed'].map((h, i) => (
-                    <th key={i} style={{ padding: '8px 14px', fontSize: '11px', color: 'var(--color-text-tertiary)', fontWeight: '400', textAlign: i > 1 ? 'right' : 'left' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cdfDrivers.map((d, i) => (
-                  <tr key={i} style={{ borderBottom: '0.5px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '8px 14px', fontSize: '13px' }}>{d.name}</td>
-                    <td style={{ padding: '8px 14px', fontSize: '13px', textAlign: 'right' }}>{d.cdfDpmo?.toLocaleString()}</td>
-                    <td style={{ padding: '8px 14px', fontSize: '13px', textAlign: 'right' }}>{d.packages?.toLocaleString()}</td>
-                    <td style={{ padding: '8px 14px', width: '120px' }}>
-                      <div style={{ height: '6px', background: '#f0ede6', borderRadius: '2px' }}>
-                        <div style={{ height: '100%', width: `${Math.min(100, (d.cdfDpmo / 15000) * 100)}%`, background: '#cc0c3a', borderRadius: '2px' }} />
-                      </div>
-                    </td>
-                    <td style={{ padding: '8px 14px', fontSize: '12px', color: 'var(--color-text-secondary)', textAlign: 'right' }}>→ {baseScore.toFixed(1)} (+0.0)</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Bottom 10% scenario */}
-      <div style={{ marginTop: '24px' }}>
-        <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
-          BOTTOM 10% SCENARIO ANALYSIS
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-          {[
-            { title: `Bottom ${Math.ceil((reportData?.drivers?.length || 10) * 0.1)} drivers removed`, sub: 'If Amazon excluded their deliveries entirely' },
-            { title: `Bottom ${Math.ceil((reportData?.drivers?.length || 10) * 0.1)} drivers improve 50%`, sub: 'Realistic coaching outcome this week' },
-          ].map((s, i) => (
-            <div key={i} style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: '6px', padding: '14px' }}>
-              <div style={{ fontSize: '13px', fontWeight: '500', marginBottom: '2px' }}>{s.title}</div>
-              <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginBottom: '10px' }}>{s.sub}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '2px' }}>
-                <span style={{ fontSize: '20px', fontWeight: '600' }}>{baseScore.toFixed(1)}</span>
-                <TierBadge label={baseTier.label} color={baseTier.color} />
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)' }}>0.0 pts</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* AI Path to Fantastic */}
-      <div style={{ marginTop: '24px' }}>
-        <div style={{ fontSize: '11px', fontWeight: '600', letterSpacing: '0.08em', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginBottom: '10px' }}>
-          AI PATH TO FANTASTIC
-        </div>
-        <button style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: '6px', padding: '10px 18px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <i className="ti ti-sparkles" />
-          Generate AI path to Fantastic ↗
-        </button>
-      </div>
-
       {/* Footer note */}
-      <div style={{ marginTop: '24px', fontSize: '11px', color: 'var(--color-text-tertiary)', lineHeight: '1.6', borderTop: '0.5px solid var(--color-border)', paddingTop: '14px' }}>
-        Projected scores use your published baseline ({baseScore.toFixed(1)}) scaled proportionally by metric tier improvements using Amazon's published weights. "Lower is better" sliders move right-to-left. All metrics at Fantastic = Fantastic+ territory.
+      <div style={{ marginTop: 20, fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6, borderTop: '0.5px solid var(--border)', paddingTop: 14 }}>
+        Category scores are computed from metric tier positions using Amazon's published weights (Appendix A).
+        Published overall score ({score}) is from your Amazon DSP scorecard PDF.
+        Slider adjustments show directional impact on Safety and Quality category scores.
       </div>
     </div>
   )
 }
 
-function ScorePanel({ title, score, tier, subtitle }) {
-  return (
-    <div style={{ background: 'var(--color-surface)', border: '0.5px solid var(--color-border)', borderRadius: '6px', padding: '16px' }}>
-      <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginBottom: '8px' }}>{title}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '6px' }}>
-        <span style={{ fontSize: '32px', fontWeight: '600', color: tier.color }}>{score.toFixed(1)}</span>
-        <TierBadge label={tier.label} color={tier.color} />
-      </div>
-      <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)' }}>{subtitle}</div>
-    </div>
-  )
-}
+// ── SUB-COMPONENTS ────────────────────────────────────────────
 
-function TierBar({ score, projScore }) {
-  const pct = s => Math.min(100, Math.max(0, s))
+function SliderGroup({ title, metrics, values, baseline, onChange, reportData }) {
   return (
-    <div style={{ padding: '12px 0 4px' }}>
-      <div style={{ position: 'relative', height: '8px', background: '#e8e6e0', borderRadius: '4px', marginBottom: '6px' }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${pct(score)}%`, background: '#077398', borderRadius: '4px' }} />
-        {projScore !== score && (
-          <div style={{ position: 'absolute', top: '-3px', left: `${pct(projScore)}%`, width: '2px', height: '14px', background: '#358118', borderRadius: '1px', transform: 'translateX(-50%)' }} />
-        )}
-        {[40, 60, 75, 90].map(m => (
-          <div key={m} style={{ position: 'absolute', top: 0, left: `${m}%`, width: '1px', height: '100%', background: 'rgba(255,255,255,0.5)' }} />
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 12, paddingBottom: 6, borderBottom: '0.5px solid var(--border)' }}>
+        {title}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {metrics.map(m => (
+          <MetricSlider
+            key={m.key}
+            metric={m}
+            value={values[m.key] ?? baseline[m.key] ?? 0}
+            baseline={baseline[m.key] ?? 0}
+            onChange={v => onChange(m.key, v)}
+            reportData={reportData}
+          />
         ))}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
-        <span>Poor</span><span>Fair (40)</span><span>Great (60)</span>
-        <span style={{ color: '#077398', fontWeight: '500' }}>Fantastic (75) ↑</span>
-        <span></span><span>F+ (90)</span>
-      </div>
     </div>
   )
 }
 
-function MetricSlider({ metric, value, baseline, onChange }) {
-  const tier = getMetricTier(metric, value)
-  const rangeMin = metric.lowerBetter ? 0 : Math.max(85, metric.fair * 0.95)
-  const rangeMax = metric.lowerBetter ? Math.max(baseline * 2.5, metric.fair * 1.5) : 100
-  const pct = metric.lowerBetter
-    ? 100 - ((value - rangeMin) / (rangeMax - rangeMin)) * 100
-    : ((value - rangeMin) / (rangeMax - rangeMin)) * 100
-
+function MetricSlider({ metric, value, baseline, onChange, reportData }) {
+  const tier = getTier(metric, value)
+  const baseTier = getTier(metric, baseline)
+  const color = TIER_COLORS[tier] || '#9b9b9b'
   const fmt = v => {
-    if (metric.unit === '%') return `${v.toFixed(2)}%`
-    if (metric.unit === '/100') return `${v % 1 === 0 ? v : v.toFixed(1)}/100`
-    return v % 1 === 0 ? String(v) : v.toFixed(1)
+    const n = parseFloat(v)
+    if (metric.unit === '%') return `${n.toFixed(2)}%`
+    if (metric.unit === 'DPMO' || metric.unit === '') return Math.round(n).toLocaleString()
+    return n % 1 === 0 ? `${n}` : n.toFixed(1)
   }
 
+  // Slider: left=worst, right=best always
+  // For lowerBetter: invert so moving right = lower number = better
+  const { sliderMin, sliderMax, lowerBetter } = metric
+
+  // Convert internal value to slider position (0=left/worst, 1=right/best)
+  const toSlider = v => lowerBetter
+    ? 1 - (v - sliderMin) / (sliderMax - sliderMin)
+    :     (v - sliderMin) / (sliderMax - sliderMin)
+
+  const fromSlider = s => lowerBetter
+    ? sliderMin + (1 - s) * (sliderMax - sliderMin)
+    : sliderMin + s * (sliderMax - sliderMin)
+
+  const sliderPos = Math.min(1, Math.max(0, toSlider(value)))
+
+  // Track gradient: always Poor→Fair→Great→Fantastic left to right
+  const gradient = `linear-gradient(to right, ${TIER_COLORS.Poor}, ${TIER_COLORS.Fair} 33%, ${TIER_COLORS.Great} 55%, ${TIER_COLORS.Fantastic} 75%, ${TIER_COLORS['Fantastic+']} 100%)`
+
+  // Baseline marker position
+  const baselinePos = Math.min(1, Math.max(0, toSlider(baseline)))
+
+  // Top drivers for this metric (who's hurting it most)
+  const topDrivers = useMemo(() => {
+    const drivers = reportData?.overview || []
+    return drivers
+      .map(d => ({
+        name: (d[COL.name] || '').trim(),
+        val: parseFloat(String(d[metric.col] || '').replace('%', '')) || 0,
+        score: parseFloat(d[metric.scoreCol]) || 0,
+      }))
+      .filter(d => d.name && !isNaN(d.val))
+      .sort((a, b) => metric.lowerBetter ? b.val - a.val : a.val - b.val)
+      .slice(0, 3)
+  }, [reportData, metric])
+
+  const tierChanged = tier !== baseTier
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 90px 90px', alignItems: 'center', gap: '12px', padding: '8px 0', borderBottom: '0.5px solid var(--color-border-subtle)' }}>
-      <div>
-        <div style={{ fontSize: '13px', color: 'var(--color-text-primary)' }}>{metric.label}</div>
-        <div style={{ fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
-          {(metric.weight * 100).toFixed(1)}% weight · baseline: {fmt(baseline)}
+    <div style={{ padding: '10px 0', borderBottom: '0.5px solid var(--border-subtle)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 110px 80px', gap: 16, alignItems: 'center' }}>
+
+        {/* Label */}
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{metric.label}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
+            {metric.weight}% weight
+            {tierChanged && <span style={{ marginLeft: 6, color, fontWeight: 600 }}>→ {tier}</span>}
+          </div>
+        </div>
+
+        {/* Slider */}
+        <div style={{ position: 'relative', paddingTop: 4, paddingBottom: 4 }}>
+          {/* Left label */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-3)', marginBottom: 4 }}>
+            <span style={{ color: TIER_COLORS.Poor }}>Poor · {fmt(metric.worst)}</span>
+            <span style={{ color: TIER_COLORS['Fantastic+'] }}>Fantastic+ · {fmt(metric.best)}</span>
+          </div>
+
+          {/* Track */}
+          <div style={{ position: 'relative', height: 8, borderRadius: 4, background: gradient, overflow: 'visible' }}>
+            {/* Thumb indicator */}
+            <div style={{
+              position: 'absolute', top: '50%', left: `${sliderPos * 100}%`,
+              transform: 'translate(-50%, -50%)',
+              width: 16, height: 16, borderRadius: '50%',
+              background: color, border: '2px solid #fff',
+              boxShadow: `0 0 0 2px ${color}`,
+              pointerEvents: 'none', zIndex: 2,
+              transition: 'left 0.05s',
+            }} />
+            {/* Baseline marker */}
+            <div style={{
+              position: 'absolute', top: -3, left: `${baselinePos * 100}%`,
+              transform: 'translateX(-50%)',
+              width: 2, height: 14, background: '#6b7fa3',
+              borderRadius: 1, pointerEvents: 'none', zIndex: 1,
+            }} />
+          </div>
+
+          {/* Range input — inverted for lowerBetter */}
+          <input
+            type="range"
+            min={0} max={1000} step={1}
+            value={Math.round(sliderPos * 1000)}
+            onChange={e => {
+              const pos = parseInt(e.target.value) / 1000
+              const raw = fromSlider(pos)
+              // Round to reasonable precision
+              const rounded = metric.unit === '%' ? Math.round(raw * 100) / 100 : Math.round(raw)
+              onChange(rounded)
+            }}
+            style={{
+              position: 'absolute', top: 4, left: 0, width: '100%',
+              height: 16, opacity: 0, cursor: 'pointer', margin: 0,
+            }}
+          />
+        </div>
+
+        {/* Current value */}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color, fontFamily: 'var(--font-mono)' }}>
+            {fmt(value)}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-3)' }}>
+            baseline: {fmt(baseline)}
+          </div>
+        </div>
+
+        {/* Tier badge */}
+        <div style={{ textAlign: 'right' }}>
+          <TierBadge tier={tier} />
         </div>
       </div>
-      <div style={{ position: 'relative', height: '4px', background: '#e8e6e0', borderRadius: '2px' }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.min(100, Math.max(0, pct))}%`, background: tier?.color || '#077398', borderRadius: '2px' }} />
-        <input type="range" min={rangeMin} max={rangeMax} step={metric.unit === '%' ? 0.01 : 0.1} value={value}
-          onChange={e => onChange(parseFloat(e.target.value))}
-          style={{ position: 'absolute', top: '-8px', left: 0, width: '100%', opacity: 0, height: '20px', cursor: 'pointer', margin: 0 }} />
-        <div style={{ position: 'absolute', top: '-2px', left: `${((baseline - rangeMin) / (rangeMax - rangeMin)) * 100}%`, transform: 'translateX(-50%)', width: '2px', height: '8px', background: '#6b7fa3', borderRadius: '1px', pointerEvents: 'none' }} />
-      </div>
-      <div style={{ textAlign: 'right', fontSize: '13px', fontWeight: '500' }}>{fmt(value)}</div>
-      <div>{tier && <TierBadge label={tier.label} color={tier.color} />}</div>
+
+      {/* Top drivers impacting this metric */}
+      {topDrivers.length > 0 && value !== baseline && (
+        <div style={{ marginTop: 6, marginLeft: 220, fontSize: 10, color: 'var(--text-3)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--text-3)' }}>Top drivers to coach:</span>
+          {topDrivers.map((d, i) => (
+            <span key={i} style={{ color: 'var(--text-2)', fontWeight: 500 }}>
+              {d.name.split(' ').slice(0,2).join(' ')} ({fmt(d.val)})
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function TierBadge({ label, color }) {
+function CategoryCard({ label, base, proj }) {
+  const tier = scoreTier(proj)
+  const color = TIER_COLORS[tier] || '#9b9b9b'
+  const changed = Math.abs(proj - base) > 0.5
   return (
-    <span style={{ fontSize: '11px', fontWeight: '500', color, background: color + '18', border: `0.5px solid ${color}55`, borderRadius: '4px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
-      {label}
-    </span>
+    <div style={{ background: 'var(--surface)', border: `0.5px solid ${color}55`, borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-3)', letterSpacing: '0.08em', marginBottom: 6, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 600, color, marginBottom: 4 }}>{proj.toFixed(1)}</div>
+      <TierBadge tier={tier} />
+      {changed && (
+        <div style={{ fontSize: 10, color: proj > base ? TIER_COLORS.Great : TIER_COLORS.Poor, marginTop: 6 }}>
+          {proj > base ? '▲' : '▼'} {Math.abs(proj - base).toFixed(1)} pts from baseline
+        </div>
+      )}
+    </div>
   )
 }
+
+function TierBadge({ tier }) {
+  if (!tier) return null
+  const color = TIER_COLORS[tier] || '#9b9b9b'
+  return (
+    <span style={{
+      display: 'inline-block', fontSize: 11, fontWeight: 600,
+      color, background: color + '18', border: `0.5px solid ${color}55`,
+      borderRadius: 4, padding: '2px 8px',
+    }}>{tier}</span>
+  )
+}
+
+function ScorePill({ label, score }) {
+  const tier = scoreTier(score)
+  const color = TIER_COLORS[tier] || '#9b9b9b'
+  return (
+    <div style={{ fontSize: 10 }}>
+      <span style={{ color: 'var(--text-3)' }}>{label}: </span>
+      <span style={{ fontWeight: 600, color }}>{score.toFixed(1)}</span>
+    </div>
+  )
+}
+
+function scoreTier(score) {
+  if (score >= 90) return 'Fantastic+'
+  if (score >= 75) return 'Fantastic'
+  if (score >= 60) return 'Great'
+  if (score >= 40) return 'Fair'
+  return 'Poor'
+}
+
+
