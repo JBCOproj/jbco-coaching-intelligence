@@ -4,6 +4,7 @@ import DriverCard from './components/DriverCard.jsx'
 import ScorecardAnalytics from './components/ScorecardAnalytics.jsx'
 import Dashboard from './components/Dashboard.jsx'
 import { parseCSV, readFileAsText, tierOrder, formatWeek, COL, getDriverTierColor } from './utils.js'
+import { readScorecardPdf } from './scorecardParser.js'
 
 const NAV = [
   { id: 'dashboard',   icon: 'ti-layout-dashboard', label: 'Dashboard',          section: 'MAIN' },
@@ -29,6 +30,7 @@ export default function App() {
   const [savedReports, setSavedReports] = useState([])
   const [saving, setSaving] = useState(false)
   const [driverSearch, setDriverSearch] = useState('')
+  const [scorecard, setScorecard] = useState(null)
 
   useEffect(() => {
     fetch('/.netlify/functions/get-reports')
@@ -46,7 +48,16 @@ export default function App() {
     if (!fileList || !fileList.length) return
     if (key === 'scorecard') {
       setLoaded(p => ({ ...p, scorecard: true }))
-      setStatuses(p => ({ ...p, scorecard: fileList[0].name }))
+      setStatuses(p => ({ ...p, scorecard: 'Reading PDF...' }))
+      try {
+        const sc = await readScorecardPdf(fileList[0])
+        setScorecard(sc.ok ? sc : null)
+        setStatuses(p => ({ ...p, scorecard: sc.ok ? `${sc.week} · ${sc.overall} ${sc.tier}` : `${fileList[0].name} (scores not found)` }))
+      } catch (e) {
+        console.error('Scorecard PDF read failed:', e)
+        setScorecard(null)
+        setStatuses(p => ({ ...p, scorecard: `${fileList[0].name} (could not read)` }))
+      }
       return
     }
     if (key === 'feedback') {
@@ -87,7 +98,7 @@ export default function App() {
     const cdfDrivers = [...(overview || [])].filter(d => parseFloat(d[COL.cdfDpmo]) > 0)
       .sort((a, b) => parseFloat(b[COL.cdfDpmo]) - parseFloat(a[COL.cdfDpmo])).slice(0, 10)
       .map(d => ({ name: d[COL.name]?.trim() || '', cdfDpmo: parseFloat(d[COL.cdfDpmo]), packages: parseFloat(d[COL.packages]) || 0, tid: d[COL.tid] }))
-    const newReport = { drivers: sorted, conMap, safetyMap, feedbackMap, overview, cdfDrivers }
+    const newReport = { drivers: sorted, conMap, safetyMap, feedbackMap, overview, cdfDrivers, scorecard }
     setReport(newReport)
     setFilter('All drivers')
     setNav('dashboard')
@@ -96,12 +107,12 @@ export default function App() {
       try {
         const res = await fetch('/.netlify/functions/save-report', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ weekOf: week, report: { drivers: sorted, overview, cdfDrivers, week } }),
+          body: JSON.stringify({ weekOf: week, report: { drivers: sorted, overview, cdfDrivers, week, scorecard } }),
         })
         if (res.ok) setSavedWeeks(prev => prev.includes(week) ? prev : [week, ...prev])
       } catch (e) { console.error('Failed to save:', e) } finally { setSaving(false) }
     }
-  }, [csvData, week])
+  }, [csvData, week, scorecard])
 
   async function loadSavedWeek(weekOf) {
     const found = savedReports.find(r => r.week_of === weekOf)
@@ -118,7 +129,7 @@ export default function App() {
   }
 
   function applyReport(saved, weekOf) {
-    setReport({ drivers: saved.drivers || [], overview: saved.overview || [], cdfDrivers: saved.cdfDrivers || [], conMap: {}, safetyMap: {}, feedbackMap: {} })
+    setReport({ drivers: saved.drivers || [], overview: saved.overview || [], cdfDrivers: saved.cdfDrivers || [], conMap: {}, safetyMap: {}, feedbackMap: {}, scorecard: saved.scorecard || null })
     setWeek(saved.week || weekOf)
     setNav('dashboard')
     setFilter('All drivers')
@@ -136,12 +147,13 @@ export default function App() {
   const tierCounts = { Platinum: 0, Gold: 0, Silver: 0, Bronze: 0 }
   if (report?.overview) report.overview.forEach(d => { const s = d[COL.standing]; if (tierCounts[s] !== undefined) tierCounts[s]++ })
   const totalPackages = report?.overview?.reduce((s, d) => s + (parseFloat(d[COL.packages]) || 0), 0) || 0
-  const publishedScore = 72.6 // TODO: read from PDF
+  // Published score comes from the uploaded scorecard PDF; 72.6 is the old placeholder if no PDF was read
+  const publishedScore = report?.scorecard?.overall ?? 72.6
 
   // Score history from saved reports
   const scoreHistory = savedReports.slice(0, 6).reverse().map(r => ({
     week: r.week_of,
-    score: r.report?.overview?.[0]?.['Fleet Score'] || publishedScore,
+    score: r.report?.scorecard?.overall ?? r.report?.overview?.[0]?.['Fleet Score'] ?? publishedScore,
   }))
 
   return (
