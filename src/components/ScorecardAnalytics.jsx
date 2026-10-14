@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { COL } from '../utils.js'
+import PointsBreakdown from './PointsBreakdown.jsx'
 
 // ── TIER COLORS — NEVER CHANGE ────────────────────────────────
 const TIER_COLORS = {
@@ -290,6 +291,9 @@ export default function ScorecardAnalytics({ reportData, week, publishedScore })
           ↺ Reset
         </button>
       </div>
+
+      {/* Where the points went — company-level, from the scorecard PDF */}
+      <PointsBreakdown scorecard={reportData?.scorecard} />
 
       {/* Score panels */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
